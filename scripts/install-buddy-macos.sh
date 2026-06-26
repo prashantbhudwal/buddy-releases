@@ -11,19 +11,17 @@ DOWNLOAD_RETRIES="${BUDDY_DOWNLOAD_RETRIES:-3}"
 case "$(uname -m)" in
   arm64)
     ARCH="arm64"
+    ARCH_LABEL="apple-silicon"
     ;;
   x86_64)
     ARCH="x64"
+    ARCH_LABEL="intel"
     ;;
   *)
     echo "Unsupported macOS architecture: $(uname -m)" >&2
     exit 1
     ;;
 esac
-
-ASSET_BASENAME="buddy-electron-mac-${ARCH}"
-DMG_NAME="${ASSET_BASENAME}.dmg"
-ZIP_NAME="${ASSET_BASENAME}.zip"
 
 mkdir -p "${DEST_DIR}"
 
@@ -37,6 +35,31 @@ esac
 ASSET_NAME=""
 ASSET_URL=""
 TAG="latest"
+
+resolve_latest_release_tag() {
+  local api_url="https://api.github.com/repos/${REPO}/releases/latest"
+  local tag
+
+  tag="$(
+    curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${api_url}" |
+      sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' |
+      head -1
+  )"
+
+  if [[ -z "${tag}" ]]; then
+    echo "Could not resolve latest Buddy release tag from ${api_url}" >&2
+    exit 1
+  fi
+
+  TAG="${tag}"
+}
+
+version_from_tag() {
+  printf '%s\n' "${TAG#v}"
+}
 
 download_candidate_asset() {
   local candidate_name="$1"
@@ -81,12 +104,28 @@ resolve_release_tag_from_asset_url() {
   fi
 }
 
-if download_candidate_asset "${DMG_NAME}"; then
+resolve_latest_release_tag
+
+VERSION="$(version_from_tag)"
+CURRENT_ASSET_BASENAME="buddy-v${VERSION}-macos-${ARCH_LABEL}"
+LEGACY_ASSET_BASENAME="buddy-electron-mac-${ARCH}"
+CANDIDATE_ASSETS=(
+  "${CURRENT_ASSET_BASENAME}.dmg"
+  "${CURRENT_ASSET_BASENAME}.zip"
+  "${LEGACY_ASSET_BASENAME}.dmg"
+  "${LEGACY_ASSET_BASENAME}.zip"
+)
+
+if download_candidate_asset "${CANDIDATE_ASSETS[0]}"; then
   :
-elif download_candidate_asset "${ZIP_NAME}"; then
+elif download_candidate_asset "${CANDIDATE_ASSETS[1]}"; then
+  :
+elif download_candidate_asset "${CANDIDATE_ASSETS[2]}"; then
+  :
+elif download_candidate_asset "${CANDIDATE_ASSETS[3]}"; then
   :
 else
-  echo "Latest release does not contain ${DMG_NAME} or ${ZIP_NAME}" >&2
+  echo "Latest release ${TAG} does not contain a supported macOS asset for ${ARCH}" >&2
   exit 1
 fi
 

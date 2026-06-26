@@ -150,11 +150,30 @@ function Resolve-ReleaseTag {
   return "latest"
 }
 
+function Get-VersionFromTag {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Tag
+  )
+
+  if ($Tag.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
+    return $Tag.Substring(1)
+  }
+
+  return $Tag
+}
+
 Enable-Tls12ForWindowsPowerShell
 
 $arch = Get-NativeArchitecture
-$candidateAssets = @("buddy-electron-win-$arch.exe")
+$tag = Resolve-ReleaseTag
+$version = Get-VersionFromTag -Tag $tag
+$candidateAssets = @(
+  "buddy-v$version-windows-$arch.exe",
+  "buddy-electron-win-$arch.exe"
+)
 if ($arch -ne "x64") {
+  $candidateAssets += "buddy-v$version-windows-x64.exe"
   $candidateAssets += "buddy-electron-win-x64.exe"
 }
 
@@ -169,10 +188,8 @@ foreach ($assetName in $candidateAssets) {
 }
 
 if ($null -eq $downloadResult) {
-  throw "Latest release does not contain any supported Windows installer assets: $($candidateAssets -join ", ")"
+  throw "Latest release $tag does not contain any supported Windows installer assets: $($candidateAssets -join ", ")"
 }
-
-$tag = Resolve-ReleaseTag
 
 Write-Host "Saved to $($downloadResult.OutputPath)"
 Write-Host "Removing Mark of the Web (MotW) quarantine flag..."
