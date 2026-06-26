@@ -1,7 +1,20 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"
 
+# -- Helpers ------------------------------------------------------------------
+function Write-Info  { param([string]$Msg) Write-Host "  $Msg" -ForegroundColor Cyan }
+function Write-Ok    { param([string]$Msg) Write-Host "  [ok] " -NoNewline -ForegroundColor Green; Write-Host $Msg }
+function Write-Warn2 { param([string]$Msg) Write-Host "  [warn] " -NoNewline -ForegroundColor Yellow; Write-Host $Msg }
+function Write-Fail  { param([string]$Msg) Write-Host "  [error] " -NoNewline -ForegroundColor Red; Write-Host $Msg }
+function Write-ProgressHint { param([string]$Msg) Write-Host "  [..] " -NoNewline -ForegroundColor Magenta; Write-Host $Msg }
+
+# -- Banner -------------------------------------------------------------------
+Write-Host ""
+Write-Host "  Buddy installer" -ForegroundColor White
+Write-Host "  Windows" -ForegroundColor DarkGray
+Write-Host ""
+
+# -- Config -------------------------------------------------------------------
 $repo = if ([string]::IsNullOrWhiteSpace($env:BUDDY_RELEASE_REPO)) {
   "prashantbhudwal/buddy-releases"
 } else {
@@ -88,7 +101,7 @@ function Download-CandidateAsset {
   $candidateOutput = Join-Path $destDir $CandidateName
   $delaySeconds = 2
 
-  Write-Host "Downloading $CandidateName from latest release..."
+  Write-Info "Downloading $CandidateName..."
   for ($attempt = 1; $attempt -le $downloadRetries; $attempt++) {
     try {
       Invoke-WebRequestCompat -Uri $candidateUrl -OutFile $candidateOutput | Out-Null
@@ -116,7 +129,7 @@ function Download-CandidateAsset {
       Remove-Item -LiteralPath $candidateOutput -Force -ErrorAction SilentlyContinue
 
       if ($statusCode -eq 404) {
-        Write-Host "Asset $CandidateName is not present in the latest release (HTTP 404)."
+        Write-Warn2 "Asset $CandidateName not found (HTTP 404), trying next..."
         return $null
       }
 
@@ -124,8 +137,8 @@ function Download-CandidateAsset {
         throw "Failed to download $CandidateName after $downloadRetries attempts. $errorMessage"
       }
 
-      Write-Host "Download attempt $attempt/$downloadRetries failed: $errorMessage"
-      Write-Host "Retrying in $delaySeconds seconds..."
+      Write-Warn2 "Attempt $attempt/$downloadRetries failed: $errorMessage"
+      Write-Warn2 "Retrying in $delaySeconds seconds..."
       Start-Sleep -Seconds $delaySeconds
       $delaySeconds = $delaySeconds * 2
     }
@@ -167,6 +180,7 @@ Enable-Tls12ForWindowsPowerShell
 
 $arch = Get-NativeArchitecture
 $tag = Resolve-ReleaseTag
+Write-Ok "Latest release $tag"
 $version = Get-VersionFromTag -Tag $tag
 $candidateAssets = @(
   "buddy-v$version-windows-$arch.exe",
@@ -179,6 +193,7 @@ if ($arch -ne "x64") {
 
 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
 
+Write-ProgressHint "Downloading Buddy for $arch. This can take a minute."
 $downloadResult = $null
 foreach ($assetName in $candidateAssets) {
   $downloadResult = Download-CandidateAsset -CandidateName $assetName
@@ -188,17 +203,18 @@ foreach ($assetName in $candidateAssets) {
 }
 
 if ($null -eq $downloadResult) {
-  throw "Latest release $tag does not contain any supported Windows installer assets: $($candidateAssets -join ", ")"
+  Write-Fail "No Windows installer found in release $tag: $($candidateAssets -join ", ")"
+  throw "Download failed"
 }
 
-Write-Host "Saved to $($downloadResult.OutputPath)"
-Write-Host "Removing Mark of the Web (MotW) quarantine flag..."
 Unblock-File -Path $downloadResult.OutputPath -ErrorAction SilentlyContinue
-Write-Host "Starting installer $($downloadResult.Name)..."
+Write-Ok "Prepared installer"
+
 Start-Process -FilePath $downloadResult.OutputPath
+Write-Ok "Installer launched"
 
 Write-Host ""
-Write-Host "Opened the latest Buddy installer."
-Write-Host "Release: $tag"
-Write-Host "Asset: $($downloadResult.Name)"
-Write-Host "Path: $($downloadResult.OutputPath)"
+Write-Host "  Next step" -ForegroundColor White
+Write-Host "  Follow the setup window that opened."
+Write-Host "  Download: $($downloadResult.OutputPath)" -ForegroundColor DarkGray
+Write-Host ""
